@@ -1,15 +1,20 @@
 use image::DynamicImage;
 
+use core::fmt;
 use std::sync::Arc;
-
-const CHECKBOX_NAMES: [&str; 1] = ["Point Prompts"];
 
 pub struct UiState {
     pub img_label: String,
     pub img: Option<Arc<DynamicImage>>,
 
-    pub checkbox_states: [bool; CHECKBOX_NAMES.len()],
-    pub checkbox_names: [&'static str; CHECKBOX_NAMES.len()],
+    pub prompt_type: PromptType,
+}
+
+#[derive(PartialEq, strum_macros::EnumIter, Copy, Clone)]
+pub enum PromptType {
+    Void,
+    Point,
+    Box,
 }
 
 impl UiState {
@@ -18,8 +23,17 @@ impl UiState {
             img_label: "Load image first".to_string(),
             img: None,
 
-            checkbox_states: [false; CHECKBOX_NAMES.len()],
-            checkbox_names: CHECKBOX_NAMES,
+            prompt_type: PromptType::Void,
+        }
+    }
+}
+
+impl fmt::Display for PromptType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PromptType::Void => write!(f, "None"),
+            PromptType::Point => write!(f, "Point"),
+            PromptType::Box => write!(f, "Box"),
         }
     }
 }

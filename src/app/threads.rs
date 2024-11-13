@@ -1,3 +1,6 @@
+use super::model::sam::Prompt;
+use super::model::yolo::BoundingBox;
+
 use image::DynamicImage;
 use std::{
     sync::{
@@ -6,9 +9,6 @@ use std::{
     },
     thread,
 };
-
-use super::model::sam::Prompt;
-use super::model::yolo::BoundingBox;
 
 #[derive(Debug)]
 pub enum Command {

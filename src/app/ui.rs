@@ -1,16 +1,12 @@
 mod state;
 
 use super::threads::{Command, Return};
-
-use state::UiState;
+use state::{PromptType, UiState};
 
 use egui::{CentralPanel, ColorImage, Sense, SidePanel, TextureOptions, TopBottomPanel};
-// use image::DynamicImage;
+use strum::IntoEnumIterator;
 
-use std::sync::{
-    mpsc::{Receiver, Sender},
-    // Arc,
-};
+use std::sync::mpsc::{Receiver, Sender};
 
 pub struct UiData {
     sender: Sender<Command>,
@@ -50,32 +46,17 @@ impl eframe::App for UiData {
                 }
 
                 if ui.button("Segment").clicked() {
-                    self.sender
-                        .send(Command::Segment)
-                        .expect("Failed to send command Segment");
-
-                    self.state.img = None;
-                    self.state.img_label = "Segmenting...".to_string();
+                    self.segment();
                 }
 
                 if ui.button("Detect").clicked() {
-                    self.sender
-                        .send(Command::Detect)
-                        .expect("Failed to send command Detect");
-
-                    self.state.img = None;
-                    self.state.img_label = "Detecting...".to_string();
+                    self.detect();
                 }
 
                 ui.separator();
 
-                for (n, b) in self
-                    .state
-                    .checkbox_names
-                    .iter()
-                    .zip(self.state.checkbox_states.iter_mut())
-                {
-                    ui.checkbox(b, *n);
+                for variant in PromptType::iter() {
+                    ui.radio_value(&mut self.state.prompt_type, variant, variant.to_string());
                 }
             });
         });
@@ -94,13 +75,15 @@ impl eframe::App for UiData {
                 // handle input
                 let size_p = egui::vec2(size[0] as f32, size[1] as f32);
                 if response.clicked() {
-                    let pos_in_img = mouse_pos - response.rect.min;
-                    let normalized_pos = pos_in_img / size_p;
-
-                    if self.state.checkbox_states[0] {
-                        self.sender
-                            .send(Command::AddPoint(normalized_pos.into()))
-                            .expect("Failed to send command AddPoint");
+                    let mouse_pos = (mouse_pos - response.rect.min) / size_p;
+                    match self.state.prompt_type {
+                        PromptType::Point => {
+                            self.add_point(mouse_pos);
+                        }
+                        PromptType::Box => {
+                            println!("It's in Box Prompt Mode, click will do nothing. You may need to drag for a box.");
+                        }
+                        PromptType::Void =>(),
                     }
                 } else if response.dragged() {
                     println!("22");
@@ -149,5 +132,29 @@ impl UiData {
         )
         .unwrap();
         Ok(())
+    }
+
+    fn segment(&mut self) {
+        self.sender
+            .send(Command::Segment)
+            .expect("Failed to send command Segment");
+
+        self.state.img = None;
+        self.state.img_label = "Segmenting...".to_string();
+    }
+
+    fn detect(&mut self) {
+        self.sender
+            .send(Command::Detect)
+            .expect("Failed to send command Detect");
+
+        self.state.img = None;
+        self.state.img_label = "Detecting...".to_string();
+    }
+
+    fn add_point(&mut self, pos: egui::Vec2) {
+        self.sender
+            .send(Command::AddPoint(pos.into()))
+            .expect("Failed to send command AddPoint");
     }
 }
