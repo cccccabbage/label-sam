@@ -33,10 +33,18 @@ impl BoundingBox {
             y2: y2 / w,
         }
     }
+}
 
-    // pub fn center(&self) -> (f32, f32) {
-    //     ((self.x1 + self.x2) / 2.0, (self.y1 + self.y2) / 2.0)
-    // }
+impl From<BoundingBox> for (f32, f32, f32, f32) {
+    fn from(b: BoundingBox) -> Self {
+        (b.x1, b.y1, b.x2, b.y2)
+    }
+}
+
+impl From<&BoundingBox> for (f32, f32, f32, f32) {
+    fn from(b: &BoundingBox) -> Self {
+        (b.x1, b.y1, b.x2, b.y2)
+    }
 }
 
 #[derive(Debug)]

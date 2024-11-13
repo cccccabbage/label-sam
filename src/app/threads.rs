@@ -2,7 +2,9 @@ use super::model::sam::Prompt;
 use super::model::yolo::BoundingBox;
 
 use image::DynamicImage;
+
 use std::{
+    fmt,
     sync::{
         mpsc::{Receiver, Sender},
         Arc,
@@ -17,6 +19,7 @@ pub enum Command {
     Detect,
 
     AddPoint([f32; 2]),
+    AddBox([f32; 4]),
 }
 
 pub enum Return {
@@ -64,19 +67,15 @@ impl ComputationData {
 
     fn run_task(&mut self, task: &Command) -> Result<(), Box<dyn std::error::Error>> {
         let timer = std::time::Instant::now();
-        let msg = match task {
-            Command::ReadImage => "Read Image",
-            Command::Segment => "Segment",
-            Command::Detect => "Detect",
-            Command::AddPoint(_) => "Add Point",
-        };
+        let msg = task.to_string();
         let ret = match task {
             Command::ReadImage => self.read_image(),
             Command::Segment => self.segment(),
             Command::Detect => self.detect(),
             Command::AddPoint(p) => self.add_point(*p),
+            Command::AddBox(bb) => self.add_box(*bb),
         };
-        Self::time(timer, msg);
+        Self::time(timer, &msg);
         self.sender.send(ret).expect("Failed to send Return");
         Ok(())
     }
@@ -122,9 +121,7 @@ impl ComputationData {
 
                     // take the first box
                     let (bb, _) = boxes.first().unwrap();
-                    let mut prompt = Prompt::new();
-                    let BoundingBox { x1, y1, x2, y2 } = bb;
-                    prompt.add_box(*x1, *y1, *x2, *y2);
+                    let prompt = Prompt::new_box_tuple(bb.into());
                     match self.prompts.as_mut() {
                         Some(prompts) => {
                             prompts.push(prompt);
@@ -153,8 +150,21 @@ impl ComputationData {
     }
 
     fn add_point(&mut self, point: [f32; 2]) -> Return {
-        let mut prompt = Prompt::new();
-        prompt.add_point(point[0], point[1], 1.0);
+        let prompt = Prompt::new_point(point[0], point[1], 1.0);
+        match self.prompts.as_mut() {
+            Some(prompts) => {
+                prompts.push(prompt);
+            }
+            None => {
+                self.prompts = Some(vec![prompt]);
+            }
+        };
+
+        Return::Void
+    }
+
+    fn add_box(&mut self, bb: [f32; 4]) -> Return {
+        let prompt = Prompt::new_box(bb[0], bb[1], bb[2], bb[3]);
         match self.prompts.as_mut() {
             Some(prompts) => {
                 prompts.push(prompt);
@@ -169,5 +179,17 @@ impl ComputationData {
 
     fn time(timer: std::time::Instant, msg: &str) {
         println!("Time elapsed for {msg}: {:?}", timer.elapsed());
+    }
+}
+
+impl fmt::Display for Command {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Command::ReadImage => write!(f, "Read Image"),
+            Command::Detect => write!(f, "Detect"),
+            Command::Segment => write!(f, "Segment"),
+            Command::AddPoint(_) => write!(f, "Add Point"),
+            Command::AddBox(_) => write!(f, "Add Box"),
+        }
     }
 }

@@ -30,6 +30,27 @@ impl Prompt {
         }
     }
 
+    pub fn new_point(x: f32, y: f32, label: f32) -> Self {
+        Self {
+            points: vec![(x, y)],
+            labels: vec![label],
+            boxes: Vec::new(),
+        }
+    }
+
+    pub fn new_box(x1: f32, y1: f32, x2: f32, y2: f32) -> Self {
+        Self {
+            points: Vec::new(),
+            labels: Vec::new(),
+            boxes: vec![(x1, y1, x2, y2)],
+        }
+    }
+
+    pub fn new_box_tuple(bb: (f32, f32, f32, f32)) -> Self {
+        let (x1, y1, x2, y2) = bb;
+        Self::new_box(x1, y1, x2, y2)
+    }
+
     pub fn add_point(&mut self, x: f32, y: f32, label: f32) {
         Self::check_point(x, y);
         Self::check_label(label);
