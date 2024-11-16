@@ -1,0 +1,15 @@
+## TODO
+- Informations in the right side of the image
+    - prompts for instances
+    - instances selection
+- Edit on segmented masks
+    - Remove part of masks by mouse
+    - Add part to mask by mouse
+    - Apply to all/one
+    - Prompt selection
+- Config file
+- save file
+    - save masks
+    - save prompts
+    - save boxes based on masks
+  - Undo and Redo

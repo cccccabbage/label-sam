@@ -2,7 +2,6 @@ mod state;
 
 use super::threads::{Command, DetectData, Return, SegmentData};
 use imageproc::drawing::Canvas;
-use lazy_static::lazy_static;
 use state::{PromptHover, PromptType, UiState};
 
 use egui::{
@@ -11,10 +10,6 @@ use egui::{
 use strum::IntoEnumIterator;
 
 use std::sync::mpsc::{Receiver, Sender};
-
-lazy_static! {
-    static ref OPAQUE: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 0, 0, 0);
-}
 
 pub struct UiData {
     sender: Sender<Command>,
@@ -179,6 +174,9 @@ impl UiData {
                                     self.state.drag_end.into(),
                                 );
                                 self.img_boxed([bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y]);
+
+                                self.state.drag_start = [-100.0, -100.0].into();
+                                self.state.drag_end = [-100.0, -100.0].into();
                             } else if response.dragged() {
                                 self.state.drag_end = mouse_pos.into();
                             }
@@ -196,6 +194,13 @@ impl UiData {
     }
 
     fn draw_prompts(&self, painter: &Painter) {
+        painter.rect(
+            egui::Rect::from_two_pos(self.state.drag_start.into(), self.state.drag_end.into()),
+            1.0,
+            egui::Color32::TRANSPARENT,
+            egui::Stroke::new(2.0, egui::Color32::RED),
+        );
+
         match self.state.prompt_hover {
             PromptHover::Point | PromptHover::All => {
                 for [x, y] in &self.state.points {
@@ -205,7 +210,6 @@ impl UiData {
                         egui::Color32::RED,
                         egui::Stroke::new(1.0, egui::Color32::BLACK),
                     );
-                    // painter.circle_filled(egui::Pos2::new(*x, *y), 3.0, MANUAL_COLOR.clone());
                 }
             }
             _ => (),
@@ -220,7 +224,7 @@ impl UiData {
                             egui::Pos2::new(*x2, *y2),
                         ),
                         1.0,
-                        OPAQUE.clone(),
+                        egui::Color32::TRANSPARENT,
                         egui::Stroke::new(2.0, egui::Color32::RED),
                     );
                 }
@@ -232,7 +236,7 @@ impl UiData {
                             egui::Pos2::new(*x2, *y2),
                         ),
                         1.0,
-                        OPAQUE.clone(),
+                        egui::Color32::TRANSPARENT,
                         egui::Stroke::new(2.0, egui::Color32::RED),
                     );
                 }
