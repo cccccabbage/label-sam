@@ -47,6 +47,18 @@ impl From<&BoundingBox> for (f32, f32, f32, f32) {
     }
 }
 
+impl From<BoundingBox> for [f32; 4] {
+    fn from(b: BoundingBox) -> Self {
+        [b.x1, b.y1, b.x2, b.y2]
+    }
+}
+
+impl From<&BoundingBox> for [f32; 4] {
+    fn from(b: &BoundingBox) -> Self {
+        [b.x1, b.y1, b.x2, b.y2]
+    }
+}
+
 #[derive(Debug)]
 pub struct YOLOmodel {
     model: Session,

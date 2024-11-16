@@ -1,4 +1,4 @@
-use sam::Prompt;
+use sam::prompt::Prompt;
 
 pub mod sam;
 pub mod yolo;
@@ -32,7 +32,8 @@ impl Models {
         }
     }
 
-    pub fn generate_mask(&self, prompt: &Prompt) -> image::DynamicImage {
+    // the prompt should be normalized
+    pub fn generate_mask(&self, prompt: Prompt) -> image::DynamicImage {
         assert!(self.embeded);
         self.sam.generate_mask(prompt)
     }

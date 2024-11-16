@@ -1,38 +1,41 @@
-use super::model::sam::Prompt;
-use super::model::yolo::BoundingBox;
-
 use image::DynamicImage;
 
 use std::{
     fmt,
-    sync::{
-        mpsc::{Receiver, Sender},
-        Arc,
-    },
+    sync::mpsc::{Receiver, Sender},
     thread,
 };
 
 #[derive(Debug)]
+pub struct SegmentData {
+    pub points: Vec<[f32; 2]>,
+    pub labels: Vec<f32>,
+    pub boxes: Vec<[f32; 4]>,
+}
+
+#[derive(Debug)]
+pub struct DetectData {
+    pub img_pos: [f32; 2],
+    pub img_size: [f32; 2],
+}
+
+#[derive(Debug)]
 pub enum Command {
     ReadImage,
-    Segment,
-    Detect,
-
-    AddPoint([f32; 2]),
-    AddBox([f32; 4]),
+    Segment(SegmentData),
+    Detect(DetectData),
 }
 
 pub enum Return {
-    Img(Arc<DynamicImage>),
+    Img(DynamicImage),
+    BBox(Vec<[f32; 4]>),
 
     Void,
 }
 
 pub struct ComputationData {
-    img: Option<Arc<DynamicImage>>,
-    mask: Option<Arc<DynamicImage>>,
-    prompts: Option<Vec<Prompt>>,
-    detected: bool,
+    img: Option<DynamicImage>,
+    mask: Option<DynamicImage>,
 
     model: super::model::Models,
 
@@ -40,6 +43,7 @@ pub struct ComputationData {
     receiver: Receiver<Command>,
 }
 
+// public
 impl ComputationData {
     pub fn new(sender: Sender<Return>, receiver: Receiver<Command>) -> Self {
         ComputationData {
@@ -49,31 +53,31 @@ impl ComputationData {
             model: super::model::Models::new(),
             img: None,
             mask: None,
-            prompts: None,
-            detected: false,
         }
     }
+}
 
-    pub fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // TODO: Kill task
-        thread::spawn(move || {
-            while let Ok(task) = self.receiver.recv() {
-                self.run_task(&task)
-                    .expect(format!("Failed to run task: {:?}", task).as_str());
-            }
-        });
-        Ok(())
-    }
+pub fn run(mut data: ComputationData) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO: Kill task
+    thread::spawn(move || {
+        while let Ok(task) = data.receiver.recv() {
+            let msg = task.to_string();
+            data.run_task(task)
+                .expect(format!("Failed to run task: {msg}").as_str());
+        }
+    });
+    Ok(())
+}
 
-    fn run_task(&mut self, task: &Command) -> Result<(), Box<dyn std::error::Error>> {
+// private
+impl ComputationData {
+    fn run_task(&mut self, task: Command) -> Result<(), Box<dyn std::error::Error>> {
         let timer = std::time::Instant::now();
         let msg = task.to_string();
         let ret = match task {
             Command::ReadImage => self.read_image(),
-            Command::Segment => self.segment(),
-            Command::Detect => self.detect(),
-            Command::AddPoint(p) => self.add_point(*p),
-            Command::AddBox(bb) => self.add_box(*bb),
+            Command::Segment(s) => self.segment(s),
+            Command::Detect(d) => self.detect(d),
         };
         Self::time(timer, &msg);
         self.sender.send(ret).expect("Failed to send Return");
@@ -81,102 +85,80 @@ impl ComputationData {
     }
 
     fn read_image(&mut self) -> Return {
-        let img = Arc::new(image::open("tests/imgs/0000.jpg").unwrap());
+        let img = image::open("tests/imgs/0000.jpg").unwrap();
 
-        self.img = Some(img.clone());
-        self.model.embed(img.as_ref());
+        self.img = Some(img);
+        self.model.embed(self.img.as_ref().unwrap());
 
-        Return::Img(img)
+        Return::Img(self.img.clone().unwrap()) // TODO: clone here
     }
 
-    fn segment(&mut self) -> Return {
-        let img_ref = self.img.as_ref();
-        match img_ref {
-            Some(img_ref) => {
-                self.model.embed(img_ref);
-                let mut masks = Vec::new();
-                for p in self.prompts.as_ref().unwrap() {
-                    masks.push(self.model.generate_mask(p).to_luma8());
-                }
-                let mask = crate::utils::mask_or(masks);
-                let mask = Arc::new(DynamicImage::from(mask));
+    fn segment(&mut self, data: SegmentData) -> Return {
+        // let img_ref = self.img.as_ref();
+        match &self.img {
+            Some(img) => {
+                self.model.embed(img); // if embeded, this will do nothing
 
-                self.mask = Some(mask.clone());
-                Return::Img(mask.clone())
+                let mut masks = Vec::new();
+                let SegmentData {
+                    points,
+                    labels,
+                    boxes,
+                } = data;
+
+                for p_and_l in points.iter().zip(labels.iter()) {
+                    masks.push(self.model.generate_mask(p_and_l.into()).to_luma8());
+                }
+                for bbox in boxes {
+                    masks.push(self.model.generate_mask(bbox.into()).to_luma8());
+                }
+
+                let mask = crate::utils::mask_or(masks);
+                let mask = DynamicImage::from(mask);
+
+                self.mask = Some(mask);
+
+                // TODO: return different masks for each instance
+                Return::Img(self.mask.clone().unwrap())
+            }
+            None => {
+                println!("No image to segment");
+                Return::Void
+            }
+        }
+    }
+
+    fn detect(&mut self, data: DetectData) -> Return {
+        let img_ref = self.img.as_ref();
+        let r = match img_ref {
+            Some(img_ref) => {
+                // the points for boxes have already been normalized
+                let boxes = self.model.detect(img_ref);
+
+                let DetectData { img_pos, img_size } = data;
+
+                let mut prompts = Vec::new();
+                for (bb, _) in boxes.iter() {
+                    let bb: [f32; 4] = bb.into();
+                    let bb = [
+                        bb[0] * img_size[0] + img_pos[0],
+                        bb[1] * img_size[1] + img_pos[1],
+                        bb[2] * img_size[0] + img_pos[0],
+                        bb[3] * img_size[1] + img_pos[1],
+                    ];
+                    prompts.push(bb.into());
+                }
+                Return::BBox(prompts)
             }
             None => Return::Void,
-        }
-    }
-
-    fn detect(&mut self) -> Return {
-        if self.detected {
-            Return::Void
-        } else {
-            let img_ref = self.img.as_ref();
-            let r = match img_ref {
-                Some(img_ref) => {
-                    // the points for boxes have already been normalized
-                    let boxes = self.model.detect(img_ref);
-                    let boxes = Arc::new(boxes);
-
-                    // take the first box
-                    let (bb, _) = boxes.first().unwrap();
-                    let prompt = Prompt::new_box_tuple(bb.into());
-                    match self.prompts.as_mut() {
-                        Some(prompts) => {
-                            prompts.push(prompt);
-                        }
-                        None => {
-                            self.prompts = Some(vec![prompt]);
-                        }
-                    };
-
-                    // deal with the rest boxes
-                    for (bb, _) in boxes.iter().skip(1) {
-                        let mut prompt = Prompt::new();
-                        let BoundingBox { x1, y1, x2, y2 } = bb;
-                        prompt.add_box(*x1, *y1, *x2, *y2);
-                        let prompts = self.prompts.as_mut().unwrap();
-                        prompts.push(prompt);
-                    }
-
-                    Return::Img(img_ref.clone())
-                }
-                None => Return::Void,
-            };
-
-            r
-        }
-    }
-
-    fn add_point(&mut self, point: [f32; 2]) -> Return {
-        let prompt = Prompt::new_point(point[0], point[1], 1.0);
-        match self.prompts.as_mut() {
-            Some(prompts) => {
-                prompts.push(prompt);
-            }
-            None => {
-                self.prompts = Some(vec![prompt]);
-            }
         };
 
-        Return::Void
+        r
     }
+}
 
-    fn add_box(&mut self, bb: [f32; 4]) -> Return {
-        let prompt = Prompt::new_box(bb[0], bb[1], bb[2], bb[3]);
-        match self.prompts.as_mut() {
-            Some(prompts) => {
-                prompts.push(prompt);
-            }
-            None => {
-                self.prompts = Some(vec![prompt]);
-            }
-        };
-
-        Return::Void
-    }
-
+// private, utils
+impl ComputationData {
     fn time(timer: std::time::Instant, msg: &str) {
         println!("Time elapsed for {msg}: {:?}", timer.elapsed());
     }
@@ -186,10 +168,8 @@ impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Command::ReadImage => write!(f, "Read Image"),
-            Command::Detect => write!(f, "Detect"),
-            Command::Segment => write!(f, "Segment"),
-            Command::AddPoint(_) => write!(f, "Add Point"),
-            Command::AddBox(_) => write!(f, "Add Box"),
+            Command::Detect(_) => write!(f, "Detect"),
+            Command::Segment(_) => write!(f, "Segment"),
         }
     }
 }

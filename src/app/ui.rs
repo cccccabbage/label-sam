@@ -1,6 +1,8 @@
 mod state;
 
-use super::threads::{Command, Return};
+use super::threads::{Command, DetectData, Return, SegmentData};
+use imageproc::drawing::Canvas;
+use lazy_static::lazy_static;
 use state::{PromptHover, PromptType, UiState};
 
 use egui::{
@@ -10,11 +12,16 @@ use strum::IntoEnumIterator;
 
 use std::sync::mpsc::{Receiver, Sender};
 
+lazy_static! {
+    static ref OPAQUE: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 0, 0, 0);
+}
+
 pub struct UiData {
     sender: Sender<Command>,
     receiver: Receiver<Return>,
 
     state: UiState,
+    running: bool, // when a task is running, disable the buttons
 }
 
 impl eframe::App for UiData {
@@ -25,16 +32,21 @@ impl eframe::App for UiData {
 
         self.draw_img_area(ctx);
 
-        if let Ok(img) = self.receiver.try_recv() {
-            match img {
+        if let Ok(ret) = self.receiver.try_recv() {
+            match ret {
                 Return::Img(img) => {
                     self.state.img = Some(img);
+                    self.running = false;
                 }
-                Return::Void => (),
+                Return::BBox(boxes) => {
+                    self.state.add_yolo_boxes(boxes);
+                    self.running = false;
+                }
+                Return::Void => self.running = false,
             }
         }
 
-        ctx.request_repaint();
+        ctx.request_repaint(); // TODO: this is not efficient
     }
 }
 
@@ -46,6 +58,7 @@ impl UiData {
             receiver, // change to
 
             state: UiState::new(),
+            running: false,
         }
     }
 
@@ -67,7 +80,7 @@ impl UiData {
     }
 }
 
-// private
+// private, drawing related
 impl UiData {
     fn draw_info_column(&self, ctx: &egui::Context) {
         SidePanel::right("infos").show(ctx, |ui| {
@@ -94,9 +107,7 @@ impl UiData {
             ui.horizontal(|ui| {
                 // basic functions
                 if ui.button("Read Image").clicked() {
-                    self.sender
-                        .send(Command::ReadImage)
-                        .expect("Failed to send command ReadImage");
+                    self.read_img();
                 }
                 if ui.button("Segment").clicked() {
                     self.segment();
@@ -143,16 +154,17 @@ impl UiData {
 
                     // show img, responds to click and drag
                     let response = ui.image(&texture).interact(Sense::click_and_drag());
+                    self.state.img_pos = Some(response.rect.min.into());
 
                     // handle input
                     match self.state.prompt_type {
                         PromptType::None => (),
                         PromptType::Point => {
-                            let size_p = egui::vec2(size[0] as f32, size[1] as f32);
+                            // let size_p = egui::vec2(size[0] as f32, size[1] as f32);
                             if response.clicked() {
                                 // get the position of the click in the image, normailzed
-                                let click_pos = (mouse_pos - response.rect.min.to_vec2()) / size_p;
-                                self.img_pointed(mouse_pos, click_pos);
+                                // let click_pos = (mouse_pos - response.rect.min.to_vec2()) / size_p;
+                                self.img_pointed(mouse_pos.into());
                             }
                         }
                         PromptType::Box => {
@@ -166,15 +178,7 @@ impl UiData {
                                     self.state.drag_start.into(),
                                     self.state.drag_end.into(),
                                 );
-                                self.img_boxed(
-                                    [
-                                        bbox.min.x / size[0] as f32,
-                                        bbox.min.y / size[1] as f32,
-                                        bbox.max.x / size[0] as f32,
-                                        bbox.max.y / size[1] as f32,
-                                    ],
-                                    [bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y],
-                                );
+                                self.img_boxed([bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y]);
                             } else if response.dragged() {
                                 self.state.drag_end = mouse_pos.into();
                             }
@@ -187,87 +191,147 @@ impl UiData {
                 }
             }
 
-            // draw hovers
-            let painter = ui.painter();
-            match self.state.prompt_hover {
-                PromptHover::None => (),
-                PromptHover::Point => self.draw_point_hovers(painter),
-                PromptHover::Box => self.draw_box_hovers(painter),
-                PromptHover::All => {
-                    self.draw_point_hovers(painter);
-                    self.draw_box_hovers(painter);
-                }
-            }
+            self.draw_prompts(ui.painter());
         });
     }
 
-    fn draw_point_hovers(&self, painter: &Painter) {
-        for p in self.state.prompt_points.iter() {
-            painter.circle(
-                p.into(),
-                3.0,
-                egui::Color32::RED,
-                egui::Stroke::new(1.0, egui::Color32::BLACK),
-            );
+    fn draw_prompts(&self, painter: &Painter) {
+        match self.state.prompt_hover {
+            PromptHover::Point | PromptHover::All => {
+                for [x, y] in &self.state.points {
+                    painter.circle(
+                        egui::Pos2::new(*x, *y),
+                        3.0,
+                        egui::Color32::RED,
+                        egui::Stroke::new(1.0, egui::Color32::BLACK),
+                    );
+                    // painter.circle_filled(egui::Pos2::new(*x, *y), 3.0, MANUAL_COLOR.clone());
+                }
+            }
+            _ => (),
         }
-    }
 
-    fn draw_box_hovers(&self, painter: &Painter) {
-        for bb in self.state.prompt_boxes.iter() {
-            let p1 = [bb[0], bb[1]];
-            let p2 = [bb[2], bb[3]];
-            painter.rect(
-                egui::Rect::from_two_pos(p1.into(), p2.into()),
-                1.0,
-                egui::Color32::from_white_alpha(0),
-                egui::Stroke::new(2.0, egui::Color32::RED),
-            );
+        match self.state.prompt_hover {
+            PromptHover::Box | PromptHover::All => {
+                for [x1, y1, x2, y2] in &self.state.yolo_boxes {
+                    painter.rect(
+                        egui::Rect::from_two_pos(
+                            egui::Pos2::new(*x1, *y1),
+                            egui::Pos2::new(*x2, *y2),
+                        ),
+                        1.0,
+                        OPAQUE.clone(),
+                        egui::Stroke::new(2.0, egui::Color32::RED),
+                    );
+                }
+
+                for [x1, y1, x2, y2] in &self.state.boxes {
+                    painter.rect(
+                        egui::Rect::from_two_pos(
+                            egui::Pos2::new(*x1, *y1),
+                            egui::Pos2::new(*x2, *y2),
+                        ),
+                        1.0,
+                        OPAQUE.clone(),
+                        egui::Stroke::new(2.0, egui::Color32::RED),
+                    );
+                }
+            }
+            _ => (),
         }
-        painter.rect(
-            egui::Rect::from_two_pos(self.state.drag_start.into(), self.state.drag_end.into()),
-            1.0,
-            egui::Color32::from_white_alpha(0),
-            egui::Stroke::new(2.0, egui::Color32::RED),
-        );
     }
 }
 
 // private, backend thread related
 impl UiData {
-    fn segment(&mut self) {
-        self.sender
-            .send(Command::Segment)
-            .expect("Failed to send command Segment");
+    fn read_img(&mut self) {
+        if self.running {
+            println!("task running, try again later");
+            return;
+        } else {
+            self.running = true;
+        }
 
-        self.state.img = None;
-        self.state.img_label = "Segmenting...".to_string();
+        self.sender
+            .send(Command::ReadImage)
+            .expect("Failed to send command ReadImage");
+    }
+
+    fn segment(&mut self) {
+        if self.running {
+            println!("task running, try again later");
+            return;
+        } else {
+            self.running = true;
+        }
+        let size = self.state.img.as_ref().unwrap().dimensions();
+        let [isx, isy] = [size.0 as f32, size.1 as f32];
+        let [ipx, ipy] = self.state.img_pos.unwrap();
+
+        let points = self.state.points.clone();
+        let points = points
+            .iter()
+            .map(|[x, y]| [(x - ipx) / isx, (y - ipy) / isy])
+            .collect();
+        let labels = self.state.point_labels.clone();
+
+        let size = self.state.img.as_ref().unwrap().dimensions();
+        let size = [size.0 as f32, size.1 as f32];
+        let pos = self.state.img_pos.unwrap();
+
+        let boxes: Vec<[f32; 4]> = self
+            .state
+            .boxes
+            .clone()
+            .into_iter()
+            .chain(self.state.yolo_boxes.clone().into_iter())
+            .collect(); // the two vec of boxes are concatenated
+        let boxes = boxes
+            .iter()
+            .map(|[x1, y1, x2, y2]| {
+                [
+                    (x1 - pos[0]) / size[0],
+                    (y1 - pos[1]) / size[1],
+                    (x2 - pos[0]) / size[0],
+                    (y2 - pos[1]) / size[1],
+                ]
+            })
+            .collect();
+
+        let s = SegmentData {
+            points,
+            labels,
+            boxes,
+        };
+
+        self.sender
+            .send(Command::Segment(s))
+            .expect("Failed to send command Segment");
     }
 
     fn detect(&mut self) {
+        if self.running {
+            println!("task running, try again later");
+            return;
+        } else {
+            self.running = true;
+        }
+
+        let size = self.state.img.as_ref().unwrap().dimensions();
+        let size = [size.0 as f32, size.1 as f32];
         self.sender
-            .send(Command::Detect)
+            .send(Command::Detect(DetectData {
+                img_size: size,
+                img_pos: self.state.img_pos.unwrap(),
+            }))
             .expect("Failed to send command Detect");
-
-        self.state.img = None;
-        self.state.img_label = "Detecting...".to_string();
     }
 
-    fn add_point(&mut self, pos: egui::Vec2) {
-        self.sender
-            .send(Command::AddPoint(pos.into()))
-            .expect("Failed to send command AddPoint");
+    fn img_pointed(&mut self, point: [f32; 2]) {
+        self.state.add_point_label(point, 1.0); // TOOD: label 0.0 for background
     }
 
-    fn img_pointed(&mut self, mouse_pos: egui::Vec2, click_pos: egui::Vec2) {
-        self.add_point(click_pos);
-        self.state.add_point(mouse_pos);
-    }
-
-    fn img_boxed(&mut self, prompt_bbox: [f32; 4], hover_bbox: [f32; 4]) {
-        self.sender
-            .send(Command::AddBox(prompt_bbox))
-            .expect("Failed to send command AddBox");
-
-        self.state.add_box(hover_bbox);
+    fn img_boxed(&mut self, bbox: [f32; 4]) {
+        self.state.add_box(bbox, true);
     }
 }

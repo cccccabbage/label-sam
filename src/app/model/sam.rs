@@ -1,3 +1,7 @@
+pub mod prompt;
+
+use prompt::Prompt;
+
 use lazy_static::lazy_static;
 use ndarray::{Array2, Array3, Array4, ArrayBase, Dim, IxDynImpl, ViewRepr};
 use ort::{inputs, CUDAExecutionProvider, GraphOptimizationLevel, Session};
@@ -12,87 +16,6 @@ lazy_static! {
     static ref HAS_MASK_INPUT: ndarray::Array1<f32> = ndarray::Array1::from(vec![0.0f32]);
     static ref ORIG_SIZE: ndarray::Array1<f32> =
         ndarray::Array1::from(vec![INPUT_H as f32, INPUT_W as f32]);
-}
-
-#[derive(Debug)]
-pub struct Prompt {
-    points: Vec<(f32, f32)>,
-    labels: Vec<f32>,
-    boxes: Vec<(f32, f32, f32, f32)>,
-}
-
-impl Prompt {
-    pub fn new() -> Self {
-        Self {
-            points: Vec::new(),
-            labels: Vec::new(),
-            boxes: Vec::new(),
-        }
-    }
-
-    pub fn new_point(x: f32, y: f32, label: f32) -> Self {
-        Self {
-            points: vec![(x, y)],
-            labels: vec![label],
-            boxes: Vec::new(),
-        }
-    }
-
-    pub fn new_box(x1: f32, y1: f32, x2: f32, y2: f32) -> Self {
-        Self {
-            points: Vec::new(),
-            labels: Vec::new(),
-            boxes: vec![(x1, y1, x2, y2)],
-        }
-    }
-
-    pub fn new_box_tuple(bb: (f32, f32, f32, f32)) -> Self {
-        let (x1, y1, x2, y2) = bb;
-        Self::new_box(x1, y1, x2, y2)
-    }
-
-    pub fn add_point(&mut self, x: f32, y: f32, label: f32) {
-        Self::check_point(x, y);
-        Self::check_label(label);
-
-        self.points.push((x, y));
-        self.labels.push(label);
-    }
-
-    pub fn add_box(&mut self, x1: f32, y1: f32, x2: f32, y2: f32) {
-        Self::check_box(x1, y1, x2, y2);
-        self.boxes.push((x1, y1, x2, y2));
-    }
-
-    pub fn into_points_labels(&self) -> (Vec<(f32, f32)>, Vec<f32>) {
-        let mut points = self.points.clone();
-        let mut labels = self.labels.clone();
-
-        for (x1, y1, x2, y2) in self.boxes.iter() {
-            points.push((*x1, *y1));
-            points.push((*x2, *y2));
-            labels.push(2.0);
-            labels.push(3.0);
-        }
-
-        (points, labels)
-    }
-
-    fn check_point(x: f32, y: f32) {
-        assert!(0.0 <= x && x <= 1.0);
-        assert!(0.0 <= y && y <= 1.0);
-    }
-
-    fn check_label(label: f32) {
-        assert!(label == 0.0 || label == 1.0);
-    }
-
-    fn check_box(x1: f32, y1: f32, x2: f32, y2: f32) {
-        Self::check_point(x1, y1);
-        Self::check_point(x2, y2);
-        assert!(x1 <= x2);
-        assert!(y1 <= y2);
-    }
 }
 
 #[derive(Debug)]
@@ -142,7 +65,7 @@ impl SAMmodel {
         }
     }
 
-    pub fn forward(&mut self, img: &DynamicImage, prompt: &Prompt) -> DynamicImage {
+    pub fn forward(&mut self, img: &DynamicImage, prompt: Prompt) -> DynamicImage {
         self.embed(img).unwrap();
         self.generate_mask(prompt)
     }
@@ -166,8 +89,9 @@ impl SAMmodel {
         Ok(())
     }
 
-    pub fn generate_mask(&self, prompt: &Prompt) -> DynamicImage {
-        let (points, labels) = Self::preprocess_points_labels(prompt);
+    // the prompts should be normalized
+    pub fn generate_mask(&self, prompt: Prompt) -> DynamicImage {
+        let (points, labels) = Self::preprocess_prompts(prompt);
         let emb = self.embedding.as_ref().unwrap();
         let decoder_input = inputs!(
             &self.decoder.inputs[0].name => emb.view(),
@@ -201,14 +125,19 @@ impl SAMmodel {
         (arr, ori_w, ori_h)
     }
 
-    fn preprocess_points_labels(prompt: &Prompt) -> (Array3<f32>, Array2<f32>) {
-        let (points, labels) = prompt.into_points_labels();
-        let mut input_points = Vec::new();
-        for (x, y) in points.iter() {
-            input_points.push(x * INPUT_W as f32);
-            input_points.push(y * INPUT_H as f32);
-        }
-        let points = Array3::from_shape_vec((1, points.len(), 2), input_points).unwrap();
+    fn preprocess_prompts(prompt: Prompt) -> (Array3<f32>, Array2<f32>) {
+        let (points, labels): (Vec<f32>, Vec<f32>) = prompt.clone().into();
+        let points = points
+            .chunks(2) // make points to Vec<(f32, f32)>
+            .flat_map(|chunk| {
+                // each chunk is (f32, f32)
+                let x = chunk[0] * INPUT_W as f32;
+                let y = chunk[1] * INPUT_H as f32;
+                vec![x, y] // returns Vec<f32>
+            })
+            .collect(); // collect to Vec<f32>
+
+        let points = Array3::from_shape_vec((1, labels.len(), 2), points).unwrap();
 
         let labels = Array2::from_shape_vec((1, labels.len()), labels.clone()).unwrap();
 
