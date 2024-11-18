@@ -1,14 +1,13 @@
 pub mod image_loader;
 
-use image::DynamicImage;
+use super::model::sam::prompt::Prompt;
+use super::ui::Outline;
 
 use std::{
     fmt,
     sync::mpsc::{Receiver, Sender},
     thread,
 };
-
-use super::model::sam::prompt::Prompt;
 
 #[derive(Debug)]
 pub enum Command {
@@ -19,7 +18,7 @@ pub enum Command {
 
 pub enum Return {
     Img(image_loader::Image),
-    Mask((DynamicImage, Vec<DynamicImage>)),
+    Mask(Vec<Outline>),
     BBox(Vec<[f32; 4]>),
 
     Void,
@@ -27,8 +26,6 @@ pub enum Return {
 
 pub struct ComputationData {
     img: Option<image_loader::Image>,
-    mask: Option<DynamicImage>,
-
     model: super::model::Models,
 
     sender: Sender<Return>,
@@ -44,7 +41,6 @@ impl ComputationData {
 
             model: super::model::Models::new(),
             img: None,
-            mask: None,
         }
     }
 }
@@ -90,21 +86,14 @@ impl ComputationData {
             Some(img) => {
                 self.model.embed(&img.data); // if embeded, this will do nothing
 
-                let mut masks = Vec::new();
+                let mut outlines = Vec::new();
 
                 for prompts in instances_prompts {
-                    masks.push(self.model.generate_mask(prompts).to_luma8());
+                    let mask = self.model.generate_mask(prompts).to_luma8();
+                    outlines.push(Outline::from(&mask).normalize(img.size));
                 }
 
-                let mask = crate::utils::mask_or(masks.clone());
-                let mask = DynamicImage::from(mask);
-
-                let masks: Vec<DynamicImage> =
-                    masks.into_iter().map(|m| DynamicImage::from(m)).collect();
-
-                self.mask = Some(mask);
-
-                Return::Mask((self.mask.clone().unwrap(), masks))
+                Return::Mask(outlines)
             }
             None => {
                 println!("No image to segment");

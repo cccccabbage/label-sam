@@ -1,13 +1,32 @@
 use super::state::PromptHover;
 use crate::app::model::sam::prompt::Prompt;
 
-use image::DynamicImage;
+use image::GrayImage;
 
 pub struct Instance {
-    pub mask: Option<DynamicImage>,
+    pub mask: Option<Outline>,
     pub prompts: Vec<Prompt>,
 
     pub box_manual: Vec<bool>,
+}
+
+#[derive(Clone)]
+pub struct Outline(Vec<[f32; 2]>);
+
+impl Outline {
+    pub fn from(mask: &GrayImage) -> Self {
+        let outline = crate::utils::extract_outline(mask);
+        Outline(outline)
+    }
+
+    pub fn normalize(mut self, img_size: [f32; 2]) -> Self {
+        for point in &mut self.0 {
+            point[0] /= img_size[0];
+            point[1] /= img_size[1];
+        }
+
+        self
+    }
 }
 
 impl Instance {
@@ -29,7 +48,7 @@ impl Instance {
         self.box_manual.push(is_manual);
     }
 
-    pub fn add_mask(&mut self, mask: DynamicImage) {
+    pub fn add_mask(&mut self, mask: Outline) {
         match &self.mask {
             Some(_) => {
                 println!("mask already exists, overwriting");
@@ -59,10 +78,10 @@ impl Instance {
                             egui::Color32::GREEN
                         };
 
-                        let p = Self::denormalize(*p, *img_size, *img_pos);
+                        let [x, y] = Self::denormalize(*p, *img_size, *img_pos);
 
                         painter.circle(
-                            egui::Pos2::new(p[0], p[1]),
+                            egui::Pos2::new(x, y),
                             3.0,
                             c,
                             egui::Stroke::new(1.0, egui::Color32::BLACK),
@@ -70,7 +89,7 @@ impl Instance {
                     }
                 }
 
-                Prompt::Box(bb) => {
+                Prompt::Box([x1, y1, x2, y2]) => {
                     if h == PromptHover::All || h == PromptHover::Box {
                         let c = if self.box_manual[i] {
                             egui::Color32::RED
@@ -78,8 +97,8 @@ impl Instance {
                             egui::Color32::GREEN
                         };
 
-                        let p1 = [bb[0], bb[1]];
-                        let p2 = [bb[2], bb[3]];
+                        let p1 = [*x1, *y1];
+                        let p2 = [*x2, *y2];
                         let p1 = Self::denormalize(p1, *img_size, *img_pos);
                         let p2 = Self::denormalize(p2, *img_size, *img_pos);
 
@@ -91,6 +110,15 @@ impl Instance {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    pub fn draw_outline(&self, painter: &egui::Painter, img_size: &[f32; 2], img_pos: &[f32; 2]) {
+        if let Some(mask) = &self.mask {
+            for p in &mask.0 {
+                let p = Self::denormalize(*p, *img_size, *img_pos);
+                painter.circle_filled(p.into(), 1.0, egui::Color32::LIGHT_YELLOW);
             }
         }
     }

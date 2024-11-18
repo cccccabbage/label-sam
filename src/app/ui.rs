@@ -3,6 +3,7 @@ mod state;
 
 use super::threads::{Command, Return};
 use imageproc::drawing::Canvas;
+pub use instance::Outline;
 use state::{PromptHover, PromptType, UiState};
 
 use egui::{
@@ -45,8 +46,7 @@ impl eframe::App for UiData {
 
                     self.running = false;
                 }
-                Return::Mask((whole_mask, ins_masks)) => {
-                    self.state.img = Some(whole_mask);
+                Return::Mask(ins_masks) => {
                     self.running = false;
 
                     for (i, mask) in ins_masks.into_iter().enumerate() {
@@ -208,6 +208,7 @@ impl UiData {
             }
 
             self.draw_prompts(ui.painter());
+            self.draw_outline(ui.painter());
         });
     }
 
@@ -220,6 +221,10 @@ impl UiData {
         );
 
         self.state.draw_prompts(painter);
+    }
+
+    fn draw_outline(&self, painter: &Painter) {
+        self.state.draw_outline(painter);
     }
 
     fn draw_instance_info(&mut self, ui: &mut egui::Ui) {

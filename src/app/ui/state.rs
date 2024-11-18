@@ -125,6 +125,19 @@ impl UiState {
         }
     }
 
+    pub fn draw_outline(&self, painter: &egui::Painter) {
+        assert_eq!(self.instances.len(), self.selection.len());
+        for (s, ins) in self.selection.iter().zip(self.instances.iter()) {
+            if *s {
+                ins.draw_outline(
+                    painter,
+                    self.img_ori_size.as_ref().unwrap(),
+                    self.img_pos.as_ref().unwrap(),
+                );
+            }
+        }
+    }
+
     pub fn format_prompts(&self) -> Vec<Vec<Prompt>> {
         let prompts = self
             .instances
