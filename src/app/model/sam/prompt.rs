@@ -54,8 +54,6 @@ impl Into<(Vec<f32>, Vec<f32>)> for Prompt {
             Prompt::Point((point, label)) => (vec![point[0], point[1]], vec![label]),
             Prompt::Box(bb) => {
                 let [x1, y1, x2, y2] = bb;
-                // let left_top = (x1, y1);
-                // let right_bottom = (x2, y2);
 
                 (vec![x1, y1, x2, y2], vec![2.0, 3.0])
             }

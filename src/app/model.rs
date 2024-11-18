@@ -33,8 +33,8 @@ impl Models {
     }
 
     // the prompt should be normalized
-    pub fn generate_mask(&self, prompt: Prompt) -> image::DynamicImage {
+    pub fn generate_mask(&self, prompts: Vec<Prompt>) -> image::DynamicImage {
         assert!(self.embeded);
-        self.sam.generate_mask(prompt)
+        self.sam.generate_mask(prompts)
     }
 }

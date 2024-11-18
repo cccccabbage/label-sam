@@ -1,6 +1,7 @@
+mod instance;
 mod state;
 
-use super::threads::{Command, DetectData, Return, SegmentData};
+use super::threads::{Command, Return};
 use imageproc::drawing::Canvas;
 use state::{PromptHover, PromptType, UiState};
 
@@ -27,11 +28,30 @@ impl eframe::App for UiData {
 
         self.draw_img_area(ctx);
 
+        // handle return values
         if let Ok(ret) = self.receiver.try_recv() {
             match ret {
                 Return::Img(img) => {
-                    self.state.img = Some(img);
+                    let crate::app::threads::image_loader::Image {
+                        data,
+                        path,
+                        size,
+                        file_size,
+                    } = img;
+                    self.state.img = Some(data);
+                    self.state.img_ori_size = Some(size);
+                    self.state.img_path = Some(path);
+                    self.state.img_file_size = Some(file_size);
+
                     self.running = false;
+                }
+                Return::Mask((whole_mask, ins_masks)) => {
+                    self.state.img = Some(whole_mask);
+                    self.running = false;
+
+                    for (i, mask) in ins_masks.into_iter().enumerate() {
+                        self.state.instances[i].add_mask(mask);
+                    }
                 }
                 Return::BBox(boxes) => {
                     self.state.add_yolo_boxes(boxes);
@@ -50,7 +70,7 @@ impl UiData {
     pub fn new(sender: Sender<Command>, receiver: Receiver<Return>) -> Self {
         UiData {
             sender,
-            receiver, // change to
+            receiver,
 
             state: UiState::new(),
             running: false,
@@ -77,22 +97,18 @@ impl UiData {
 
 // private, drawing related
 impl UiData {
-    fn draw_info_column(&self, ctx: &egui::Context) {
+    fn draw_info_column(&mut self, ctx: &egui::Context) {
         SidePanel::right("infos").show(ctx, |ui| {
-            ui.vertical(|ui| {
-                ui.label("Image Info");
-                match &self.state.img {
-                    Some(img) => {
-                        // there is an image
-                        ui.label(format!("Width: {}", img.width()));
-                        ui.label(format!("Height: {}", img.height()));
-                    }
-                    None => {
-                        // noting yet
-                        ui.label(format!("No Image loaded"));
-                    }
-                }
-            });
+            self.draw_img_info(ui);
+
+            ui.separator();
+
+            self.draw_instance_info(ui);
+
+            // TODO
+            // Prompt Section
+            // TODO
+            // File Section
         });
     }
 
@@ -126,6 +142,9 @@ impl UiData {
                 for variant in PromptHover::iter() {
                     ui.radio_value(&mut self.state.prompt_hover, variant, variant.to_string());
                 }
+
+                ui.separator();
+                ui.checkbox(&mut self.state.selection_mode, "Selection Mode");
             });
         });
     }
@@ -155,11 +174,9 @@ impl UiData {
                     match self.state.prompt_type {
                         PromptType::None => (),
                         PromptType::Point => {
-                            // let size_p = egui::vec2(size[0] as f32, size[1] as f32);
                             if response.clicked() {
-                                // get the position of the click in the image, normailzed
-                                // let click_pos = (mouse_pos - response.rect.min.to_vec2()) / size_p;
-                                self.img_pointed(mouse_pos.into());
+                                let p = self.normalize(mouse_pos.into());
+                                self.img_pointed(p);
                             }
                         }
                         PromptType::Box => {
@@ -170,9 +187,10 @@ impl UiData {
                                 self.state.drag_end = mouse_pos.into();
 
                                 let bbox = Rect::from_two_pos(
-                                    self.state.drag_start.into(),
-                                    self.state.drag_end.into(),
+                                    self.normalize(self.state.drag_start).into(),
+                                    self.normalize(self.state.drag_end).into(),
                                 );
+
                                 self.img_boxed([bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y]);
 
                                 self.state.drag_start = [-100.0, -100.0].into();
@@ -201,48 +219,59 @@ impl UiData {
             egui::Stroke::new(2.0, egui::Color32::RED),
         );
 
-        match self.state.prompt_hover {
-            PromptHover::Point | PromptHover::All => {
-                for [x, y] in &self.state.points {
-                    painter.circle(
-                        egui::Pos2::new(*x, *y),
-                        3.0,
-                        egui::Color32::RED,
-                        egui::Stroke::new(1.0, egui::Color32::BLACK),
-                    );
+        self.state.draw_prompts(painter);
+    }
+
+    fn draw_instance_info(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            if ui
+                .checkbox(&mut self.state.select_all, "Select All")
+                .changed()
+            {
+                self.state.change_select_all();
+            }
+
+            for (i, b) in self.state.selection.iter_mut().enumerate() {
+                ui.checkbox(b, format!("Instance {}", i));
+                if !(*b) {
+                    self.state.select_all = false;
                 }
             }
-            _ => (),
-        }
+        });
+    }
 
-        match self.state.prompt_hover {
-            PromptHover::Box | PromptHover::All => {
-                for [x1, y1, x2, y2] in &self.state.yolo_boxes {
-                    painter.rect(
-                        egui::Rect::from_two_pos(
-                            egui::Pos2::new(*x1, *y1),
-                            egui::Pos2::new(*x2, *y2),
-                        ),
-                        1.0,
-                        egui::Color32::TRANSPARENT,
-                        egui::Stroke::new(2.0, egui::Color32::RED),
-                    );
+    fn draw_img_info(&self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            // Image Info Section
+            ui.label("Image Info");
+            ui.vertical(|ui| {
+                match &self.state.img {
+                    Some(_) => (),
+                    None => {
+                        // noting yet
+                        ui.label(format!("No Image loaded"));
+                    }
                 }
-
-                for [x1, y1, x2, y2] in &self.state.boxes {
-                    painter.rect(
-                        egui::Rect::from_two_pos(
-                            egui::Pos2::new(*x1, *y1),
-                            egui::Pos2::new(*x2, *y2),
-                        ),
-                        1.0,
-                        egui::Color32::TRANSPARENT,
-                        egui::Stroke::new(2.0, egui::Color32::RED),
-                    );
+                match &self.state.img_path {
+                    Some(path) => {
+                        ui.label(format!("Path: {}", path.to_str().unwrap()));
+                    }
+                    None => (),
                 }
-            }
-            _ => (),
-        }
+                match &self.state.img_ori_size {
+                    Some(size) => {
+                        ui.label(format!("Image Size: {} {}", size[0], size[1]));
+                    }
+                    None => (),
+                }
+                match &self.state.img_file_size {
+                    Some(size) => {
+                        ui.label(format!("File Size: {:.2} KB", size / 1024.0));
+                    }
+                    None => (),
+                }
+            });
+        });
     }
 }
 
@@ -262,54 +291,9 @@ impl UiData {
     }
 
     fn segment(&mut self) {
-        if self.running {
-            println!("task running, try again later");
-            return;
-        } else {
-            self.running = true;
-        }
-        let size = self.state.img.as_ref().unwrap().dimensions();
-        let [isx, isy] = [size.0 as f32, size.1 as f32];
-        let [ipx, ipy] = self.state.img_pos.unwrap();
-
-        let points = self.state.points.clone();
-        let points = points
-            .iter()
-            .map(|[x, y]| [(x - ipx) / isx, (y - ipy) / isy])
-            .collect();
-        let labels = self.state.point_labels.clone();
-
-        let size = self.state.img.as_ref().unwrap().dimensions();
-        let size = [size.0 as f32, size.1 as f32];
-        let pos = self.state.img_pos.unwrap();
-
-        let boxes: Vec<[f32; 4]> = self
-            .state
-            .boxes
-            .clone()
-            .into_iter()
-            .chain(self.state.yolo_boxes.clone().into_iter())
-            .collect(); // the two vec of boxes are concatenated
-        let boxes = boxes
-            .iter()
-            .map(|[x1, y1, x2, y2]| {
-                [
-                    (x1 - pos[0]) / size[0],
-                    (y1 - pos[1]) / size[1],
-                    (x2 - pos[0]) / size[0],
-                    (y2 - pos[1]) / size[1],
-                ]
-            })
-            .collect();
-
-        let s = SegmentData {
-            points,
-            labels,
-            boxes,
-        };
-
+        let instances_prompts = self.state.format_prompts();
         self.sender
-            .send(Command::Segment(s))
+            .send(Command::Segment(instances_prompts))
             .expect("Failed to send command Segment");
     }
 
@@ -321,13 +305,8 @@ impl UiData {
             self.running = true;
         }
 
-        let size = self.state.img.as_ref().unwrap().dimensions();
-        let size = [size.0 as f32, size.1 as f32];
         self.sender
-            .send(Command::Detect(DetectData {
-                img_size: size,
-                img_pos: self.state.img_pos.unwrap(),
-            }))
+            .send(Command::Detect)
             .expect("Failed to send command Detect");
     }
 
@@ -337,5 +316,15 @@ impl UiData {
 
     fn img_boxed(&mut self, bbox: [f32; 4]) {
         self.state.add_box(bbox, true);
+    }
+}
+
+// private, utils
+impl UiData {
+    fn normalize(&self, point: [f32; 2]) -> [f32; 2] {
+        let size = self.state.img.as_ref().unwrap().dimensions();
+        let [isx, isy] = [size.0 as f32, size.1 as f32];
+        let [ipx, ipy] = self.state.img_pos.unwrap();
+        [(point[0] - ipx) / isx, (point[1] - ipy) / isy]
     }
 }

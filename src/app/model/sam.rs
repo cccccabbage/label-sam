@@ -67,7 +67,7 @@ impl SAMmodel {
 
     pub fn forward(&mut self, img: &DynamicImage, prompt: Prompt) -> DynamicImage {
         self.embed(img).unwrap();
-        self.generate_mask(prompt)
+        self.generate_mask(vec![prompt])
     }
 
     pub fn embed(&mut self, img: &DynamicImage) -> Result<(), Box<dyn std::error::Error>> {
@@ -90,8 +90,8 @@ impl SAMmodel {
     }
 
     // the prompts should be normalized
-    pub fn generate_mask(&self, prompt: Prompt) -> DynamicImage {
-        let (points, labels) = Self::preprocess_prompts(prompt);
+    pub fn generate_mask(&self, prompts: Vec<Prompt>) -> DynamicImage {
+        let (points, labels) = Self::preprocess_prompts(prompts);
         let emb = self.embedding.as_ref().unwrap();
         let decoder_input = inputs!(
             &self.decoder.inputs[0].name => emb.view(),
@@ -125,20 +125,42 @@ impl SAMmodel {
         (arr, ori_w, ori_h)
     }
 
-    fn preprocess_prompts(prompt: Prompt) -> (Array3<f32>, Array2<f32>) {
-        let (points, labels): (Vec<f32>, Vec<f32>) = prompt.clone().into();
-        let points = points
-            .chunks(2) // make points to Vec<(f32, f32)>
-            .flat_map(|chunk| {
-                // each chunk is (f32, f32)
-                let x = chunk[0] * INPUT_W as f32;
-                let y = chunk[1] * INPUT_H as f32;
-                vec![x, y] // returns Vec<f32>
-            })
-            .collect(); // collect to Vec<f32>
+    fn preprocess_prompts(prompts: Vec<Prompt>) -> (Array3<f32>, Array2<f32>) {
+        let mut points = Vec::new();
+        let mut labels = Vec::new();
+        for prompt in prompts.iter() {
+            let (one_points, one_labels): (Vec<f32>, Vec<f32>) = prompt.clone().into();
+            let one_points: Vec<f32> = one_points
+                .chunks(2) // make points to Vec<(f32, f32)>
+                .flat_map(|chunk| {
+                    // each chunk is (f32, f32)
+                    let x = chunk[0] * INPUT_W as f32;
+                    let y = chunk[1] * INPUT_H as f32;
+                    vec![x, y] // returns Vec<f32>
+                })
+                .collect(); // collect to Vec<f32>
+
+            points.extend(one_points);
+            labels.extend(one_labels);
+        }
+
+        // TODO: remove these comments
+        // let (points, labels): (Vec<f32>, Vec<f32>) = prompts.clone().into();
+        // let points = points
+        //     .chunks(2) // make points to Vec<(f32, f32)>
+        //     .flat_map(|chunk| {
+        //         // each chunk is (f32, f32)
+        //         let x = chunk[0] * INPUT_W as f32;
+        //         let y = chunk[1] * INPUT_H as f32;
+        //         vec![x, y] // returns Vec<f32>
+        //     })
+        //     .collect(); // collect to Vec<f32>
+
+        // let points = Array3::from_shape_vec((1, labels.len(), 2), points).unwrap();
+
+        // let labels = Array2::from_shape_vec((1, labels.len()), labels.clone()).unwrap();
 
         let points = Array3::from_shape_vec((1, labels.len(), 2), points).unwrap();
-
         let labels = Array2::from_shape_vec((1, labels.len()), labels.clone()).unwrap();
 
         (points, labels)
