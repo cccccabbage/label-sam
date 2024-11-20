@@ -26,10 +26,8 @@ impl Models {
     }
 
     pub fn embed(&mut self, img: &image::DynamicImage) {
-        if !self.embeded {
-            self.sam.embed(img).unwrap();
-            self.embeded = true;
-        }
+        self.sam.embed(img).unwrap();
+        self.embeded = true;
     }
 
     // the prompt should be normalized

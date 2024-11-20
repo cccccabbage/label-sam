@@ -1,3 +1,5 @@
+use core::fmt;
+
 use super::state::PromptHover;
 use crate::app::model::sam::prompt::Prompt;
 
@@ -70,9 +72,7 @@ impl Instance {
 
     pub fn add_mask(&mut self, mask: Outline) {
         match &self.mask {
-            Some(_) => {
-                println!("mask already exists, overwriting");
-            }
+            Some(_) => (),
             None => {
                 self.mask = Some(mask);
             }
@@ -125,6 +125,19 @@ impl Instance {
                 (dx * dx + dy * dy).sqrt()
             }
             None => std::f32::INFINITY,
+        }
+    }
+
+    pub fn format_txt(&self) -> Option<String> {
+        match &self.mask {
+            None => None,
+            Some(outline) => {
+                let mut txt = String::new();
+                txt.push_str("0 ");
+                txt.push_str(&outline.to_string());
+
+                Some(txt)
+            }
         }
     }
 }
@@ -204,8 +217,19 @@ impl Instance {
     }
 }
 
+// utils
 impl Instance {
     fn denormalize(p: [f32; 2], scale: [f32; 2], delta: [f32; 2]) -> [f32; 2] {
         [p[0] * scale[0] + delta[0], p[1] * scale[1] + delta[1]]
+    }
+}
+
+impl fmt::Display for Outline {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut txt = String::new();
+        for [x, y] in &self.0 {
+            txt.push_str(&format!("{} {} ", x, y));
+        }
+        write!(f, "{}", txt)
     }
 }

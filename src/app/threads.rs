@@ -5,13 +5,14 @@ use super::ui::Outline;
 
 use std::{
     fmt,
+    path::PathBuf,
     sync::mpsc::{Receiver, Sender},
     thread,
 };
 
 #[derive(Debug)]
 pub enum Command {
-    ReadImage,
+    ReadImage(PathBuf),
     Segment(Vec<Vec<Prompt>>),
     Detect,
 }
@@ -63,7 +64,7 @@ impl ComputationData {
         let timer = std::time::Instant::now();
         let msg = task.to_string();
         let ret = match task {
-            Command::ReadImage => self.read_image(),
+            Command::ReadImage(path) => self.read_image(path),
             Command::Segment(s) => self.segment(s),
             Command::Detect => self.detect(),
         };
@@ -72,20 +73,18 @@ impl ComputationData {
         Ok(())
     }
 
-    fn read_image(&mut self) -> Return {
-        let img = image_loader::Image::load("tests/imgs/0000.jpg".into()).unwrap();
+    fn read_image(&mut self, path: PathBuf) -> Return {
+        let img = image_loader::Image::load(path).unwrap();
 
         self.img = Some(img);
         self.model.embed(&self.img.as_ref().unwrap().data);
 
-        Return::Img(self.img.clone().unwrap()) // TODO: clone here
+        Return::Img(self.img.clone().unwrap()) // TODO: clone happends here
     }
 
     fn segment(&mut self, instances_prompts: Vec<Vec<Prompt>>) -> Return {
         match &self.img {
             Some(img) => {
-                self.model.embed(&img.data); // if embeded, this will do nothing
-
                 let mut outlines = Vec::new();
 
                 for prompts in instances_prompts {
@@ -132,7 +131,7 @@ impl ComputationData {
 impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Command::ReadImage => write!(f, "Read Image"),
+            Command::ReadImage(_) => write!(f, "Read Image"),
             Command::Detect => write!(f, "Detect"),
             Command::Segment(_) => write!(f, "Segment"),
         }

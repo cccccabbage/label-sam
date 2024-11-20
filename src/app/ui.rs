@@ -117,8 +117,16 @@ impl UiData {
         TopBottomPanel::top("Button Area").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 // basic functions
-                if ui.button("Read Image").clicked() {
-                    self.read_img();
+                if ui.button("Open Folder").clicked() {
+                    self.open_folder();
+                }
+                if ui.button("Save").clicked() {
+                    self.state
+                        .save_mask()
+                        .unwrap_or_else(|e| println!("Error: {}", e));
+                }
+                if ui.button("Next Image").clicked() {
+                    self.next_img();
                 }
                 if ui.button("Segment").clicked() {
                     self.segment();
@@ -270,7 +278,7 @@ impl UiData {
 
 // private, backend thread related
 impl UiData {
-    fn read_img(&mut self) {
+    fn open_folder(&mut self) {
         if self.running {
             println!("task running, try again later");
             return;
@@ -278,9 +286,28 @@ impl UiData {
             self.running = true;
         }
 
-        self.sender
-            .send(Command::ReadImage)
-            .expect("Failed to send command ReadImage");
+        self.state.open_folder();
+        println!("Target Folder Set.");
+        self.running = false;
+    }
+
+    fn next_img(&mut self) {
+        if self.running {
+            println!("task running, try again later");
+            return;
+        } else {
+            self.running = true;
+        }
+
+        let file = self.state.next_img();
+        if let Some(path) = file {
+            self.sender
+                .send(Command::ReadImage(path))
+                .expect("Failed to send command ReadImage");
+        } else {
+            println!("Loading cancelled");
+        }
+        self.running = false;
     }
 
     fn segment(&mut self) {

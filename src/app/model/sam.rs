@@ -144,22 +144,6 @@ impl SAMmodel {
             labels.extend(one_labels);
         }
 
-        // TODO: remove these comments
-        // let (points, labels): (Vec<f32>, Vec<f32>) = prompts.clone().into();
-        // let points = points
-        //     .chunks(2) // make points to Vec<(f32, f32)>
-        //     .flat_map(|chunk| {
-        //         // each chunk is (f32, f32)
-        //         let x = chunk[0] * INPUT_W as f32;
-        //         let y = chunk[1] * INPUT_H as f32;
-        //         vec![x, y] // returns Vec<f32>
-        //     })
-        //     .collect(); // collect to Vec<f32>
-
-        // let points = Array3::from_shape_vec((1, labels.len(), 2), points).unwrap();
-
-        // let labels = Array2::from_shape_vec((1, labels.len()), labels.clone()).unwrap();
-
         let points = Array3::from_shape_vec((1, labels.len(), 2), points).unwrap();
         let labels = Array2::from_shape_vec((1, labels.len()), labels.clone()).unwrap();
 
