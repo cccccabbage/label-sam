@@ -4,7 +4,7 @@ mod state;
 use super::threads::{Command, Return};
 use imageproc::drawing::Canvas;
 pub use instance::Outline;
-use state::{PromptHover, PromptType, UiState};
+use state::{OptMode, PromptHover, PromptType, UiState};
 
 use egui::{
     CentralPanel, ColorImage, Painter, Rect, Sense, SidePanel, TextureOptions, TopBottomPanel,
@@ -145,6 +145,12 @@ impl UiData {
 
                 ui.separator();
                 ui.checkbox(&mut self.state.selection_mode, "Selection Mode");
+
+                // operation mode: add new instance or add to existing instance or delete instance
+                ui.separator();
+                for variant in OptMode::iter() {
+                    ui.radio_value(&mut self.state.operation_mode, variant, variant.to_string());
+                }
             });
         });
     }
@@ -170,36 +176,7 @@ impl UiData {
                     let response = ui.image(&texture).interact(Sense::click_and_drag());
                     self.state.img_pos = Some(response.rect.min.into());
 
-                    // handle input
-                    match self.state.prompt_type {
-                        PromptType::None => (),
-                        PromptType::Point => {
-                            if response.clicked() {
-                                let p = self.normalize(mouse_pos.into());
-                                self.img_pointed(p);
-                            }
-                        }
-                        PromptType::Box => {
-                            if response.drag_started() {
-                                self.state.drag_start = mouse_pos.into();
-                                self.state.drag_end = mouse_pos.into();
-                            } else if response.drag_stopped() {
-                                self.state.drag_end = mouse_pos.into();
-
-                                let bbox = Rect::from_two_pos(
-                                    self.normalize(self.state.drag_start).into(),
-                                    self.normalize(self.state.drag_end).into(),
-                                );
-
-                                self.img_boxed([bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y]);
-
-                                self.state.drag_start = [-100.0, -100.0].into();
-                                self.state.drag_end = [-100.0, -100.0].into();
-                            } else if response.dragged() {
-                                self.state.drag_end = mouse_pos.into();
-                            }
-                        }
-                    }
+                    self.input_on_img(response, mouse_pos);
                 }
                 // No image yet or waiting for feedback like segment
                 None => {
@@ -236,11 +213,22 @@ impl UiData {
                 self.state.change_select_all();
             }
 
+            let mut to_remove = Vec::new();
             for (i, b) in self.state.selection.iter_mut().enumerate() {
-                ui.checkbox(b, format!("Instance {}", i));
+                ui.horizontal(|ui| {
+                    ui.checkbox(b, format!("Instance {}", i));
+                    if ui.button("Delete").clicked() {
+                        to_remove.push(i);
+                    }
+                });
                 if !(*b) {
                     self.state.select_all = false;
                 }
+            }
+
+            to_remove.reverse();
+            for i in to_remove {
+                self.state.remove_instance(i);
             }
         });
     }
@@ -315,12 +303,52 @@ impl UiData {
             .expect("Failed to send command Detect");
     }
 
-    fn img_pointed(&mut self, point: [f32; 2]) {
-        self.state.add_point_label(point, 1.0); // TOOD: label 0.0 for background
+    fn input_on_img(&mut self, response: egui::Response, mouse_pos: egui::Vec2) {
+        // handle input
+        match self.state.prompt_type {
+            PromptType::None => (),
+            PromptType::Point => {
+                if response.clicked() {
+                    let p = self.normalize(mouse_pos.into());
+                    self.img_pointed(p);
+                }
+            }
+            PromptType::Box => {
+                if self.state.operation_mode == OptMode::AddOn
+                    || self.state.operation_mode == OptMode::NewInstance
+                {
+                    if response.drag_started() {
+                        self.state.drag_start = mouse_pos.into();
+                        self.state.drag_end = mouse_pos.into();
+                    } else if response.drag_stopped() {
+                        self.state.drag_end = mouse_pos.into();
+
+                        let bbox = Rect::from_two_pos(
+                            self.normalize(self.state.drag_start).into(),
+                            self.normalize(self.state.drag_end).into(),
+                        );
+
+                        self.img_boxed([bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y]);
+
+                        self.state.drag_start = [-100.0, -100.0].into();
+                        self.state.drag_end = [-100.0, -100.0].into();
+                    } else if response.dragged() {
+                        self.state.drag_end = mouse_pos.into();
+                    }
+                }
+            }
+        }
     }
 
+    // the input has been normalized
+    fn img_pointed(&mut self, point: [f32; 2]) {
+        self.state.pointed(point);
+    }
+
+    // the input has been normalized
     fn img_boxed(&mut self, bbox: [f32; 4]) {
-        self.state.add_box(bbox, true);
+        // TODO: selection mode
+        self.state.boxed(bbox, true);
     }
 }
 

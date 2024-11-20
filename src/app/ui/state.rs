@@ -18,6 +18,7 @@ pub struct UiState {
 
     pub prompt_type: PromptType,
     pub prompt_hover: PromptHover,
+    pub operation_mode: OptMode,
 
     pub selection_mode: bool,
 
@@ -44,6 +45,14 @@ pub enum PromptHover {
     All,
 }
 
+#[derive(PartialEq, strum_macros::EnumIter, Copy, Clone)]
+pub enum OptMode {
+    None,
+    NewInstance,
+    AddOn,
+    Delete,
+}
+
 impl UiState {
     pub fn new() -> Self {
         UiState {
@@ -57,12 +66,13 @@ impl UiState {
 
             prompt_type: PromptType::None,
             prompt_hover: PromptHover::All,
+            operation_mode: OptMode::None,
 
             selection_mode: false,
-            select_all: false,
 
             instances: Vec::new(),
             selection: Vec::new(),
+            select_all: true,
 
             drag_start: [-100.0, -100.0],
             drag_end: [-100.0, -100.0],
@@ -71,25 +81,38 @@ impl UiState {
 
     fn add_instance(&mut self, instance: Instance) {
         self.instances.push(instance);
-        self.selection.push(true);
+        self.selection.push(self.select_all);
     }
 
     // if selecton < 0, add a new instance
     // else update the selected one
-    pub fn add_point_label(&mut self, point: [f32; 2], label: f32) {
-        let selection = self.check_selection();
-        if selection < 0 {
-            let mut instance = Instance::new();
-            instance.add_point_label(point[0], point[1], label);
-            self.add_instance(instance);
+    pub fn pointed(&mut self, point: [f32; 2]) {
+        let label = 1.0f32; // TODO: 0.0 for background
+
+        if self.operation_mode == OptMode::NewInstance {
+            // add a new instance
+            self.add_instance(Instance::new_point(point[0], point[1], label));
         } else {
-            self.instances[selection as usize].add_point_label(point[0], point[1], label);
+            // do not add new instance
+            if self.selection_mode {
+                // select the nearest instance
+                self.find_instance(point);
+            } else {
+                // add prompt to selected isntance
+                if self.operation_mode == OptMode::AddOn {
+                    let selected = self.check_selection();
+                    if selected >= 0 {
+                        self.instances[selected as usize]
+                            .add_point_label(point[0], point[1], label);
+                    }
+                }
+            }
         }
     }
 
     // if selecton < 0, add a new instance
     // else update the selected one
-    pub fn add_box(&mut self, bbox: [f32; 4], is_manual: bool) {
+    pub fn boxed(&mut self, bbox: [f32; 4], is_manual: bool) {
         let selection = if is_manual {
             self.check_selection()
         } else {
@@ -97,9 +120,7 @@ impl UiState {
         };
 
         if selection < 0 {
-            let mut instance = Instance::new();
-            instance.add_box(bbox, is_manual);
-            self.add_instance(instance);
+            self.add_instance(Instance::new_box(bbox, is_manual));
         } else {
             self.instances[selection as usize].add_box(bbox, is_manual);
         }
@@ -107,7 +128,7 @@ impl UiState {
 
     pub fn add_yolo_boxes(&mut self, boxes: Vec<[f32; 4]>) {
         for bbox in boxes {
-            self.add_box(bbox, false);
+            self.boxed(bbox, false);
         }
     }
 
@@ -148,18 +169,24 @@ impl UiState {
         prompts
     }
 
+    // return -1 if no specific instance is selected
+    // else return the index of the selected instance
     pub fn check_selection(&self) -> i32 {
         // go through the selection twice
         // Considering that the Vec is not big at all, this is fine.
 
-        if self.select_all {
+        if self.select_all && self.selection.len() != 1 {
             return -1;
         }
 
+        // find the number of true
         let count = self.selection.iter().filter(|&&x| x).count();
+
         if count > 1 || count == 0 {
+            // if more than one or none is selected
             -1
         } else {
+            // if only one is selected, find the index
             match self.selection.iter().position(|&x| x) {
                 None => -1,
                 Some(i) => i as i32,
@@ -171,6 +198,33 @@ impl UiState {
         for s in self.selection.iter_mut() {
             *s = self.select_all;
         }
+    }
+
+    // use the input to find the nearest instance based on Instance::pos
+    // set the selection for the instance to true
+    // this would lead to show the only one instance found
+    pub fn find_instance(&mut self, pos: [f32; 2]) {
+        let idx = self
+            .instances
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                let a_dist = a.get_distance(pos);
+                let b_dist = b.get_distance(pos);
+                a_dist.partial_cmp(&b_dist).unwrap()
+            })
+            .unwrap()
+            .0;
+
+        // set all selection to false
+        self.selection = vec![false; self.selection.len()];
+        self.selection[idx] = true;
+        self.select_all = false;
+    }
+
+    pub fn remove_instance(&mut self, idx: usize) {
+        self.instances.remove(idx);
+        self.selection.remove(idx);
     }
 }
 
@@ -191,6 +245,17 @@ impl fmt::Display for PromptHover {
             PromptHover::Point => write!(f, "Point"),
             PromptHover::Box => write!(f, "Box"),
             PromptHover::All => write!(f, "All"),
+        }
+    }
+}
+
+impl fmt::Display for OptMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OptMode::None => write!(f, "None"),
+            OptMode::NewInstance => write!(f, "New instance"),
+            OptMode::AddOn => write!(f, "Add on"),
+            OptMode::Delete => write!(f, "Delete"),
         }
     }
 }
