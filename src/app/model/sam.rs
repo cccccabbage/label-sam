@@ -128,8 +128,8 @@ impl SAMmodel {
     fn preprocess_prompts(prompts: Vec<Prompt>) -> (Array3<f32>, Array2<f32>) {
         let mut points = Vec::new();
         let mut labels = Vec::new();
-        for prompt in prompts.iter() {
-            let (one_points, one_labels): (Vec<f32>, Vec<f32>) = prompt.clone().into();
+        for prompt in prompts.into_iter() {
+            let (one_points, one_labels): (Vec<f32>, Vec<f32>) = prompt.into();
             let one_points: Vec<f32> = one_points
                 .chunks(2) // make points to Vec<(f32, f32)>
                 .flat_map(|chunk| {

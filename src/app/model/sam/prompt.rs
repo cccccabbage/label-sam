@@ -7,8 +7,8 @@ pub enum Prompt {
 impl Prompt {
     pub fn new_point(x: f32, y: f32, label: f32) -> Self {
         assert!(label == 0.0 || label == 1.0);
-        assert!(x >= 0.0 && x <= 1.0);
-        assert!(y >= 0.0 && y <= 1.0);
+        assert!((0f32..1f32).contains(&x));
+        assert!((0f32..1f32).contains(&y));
 
         Self::Point(([x, y], label))
     }
@@ -48,9 +48,9 @@ impl From<(&[f32; 2], &f32)> for Prompt {
     }
 }
 
-impl Into<(Vec<f32>, Vec<f32>)> for Prompt {
-    fn into(self) -> (Vec<f32>, Vec<f32>) {
-        match self {
+impl From<Prompt> for (Vec<f32>, Vec<f32>) {
+    fn from(prompt: Prompt) -> (Vec<f32>, Vec<f32>) {
+        match prompt {
             Prompt::Point((point, label)) => (vec![point[0], point[1]], vec![label]),
             Prompt::Box(bb) => {
                 let [x1, y1, x2, y2] = bb;

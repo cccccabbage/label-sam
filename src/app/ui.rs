@@ -79,7 +79,7 @@ impl UiData {
 
     pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         eframe::run_native(
-            "app_name",
+            "Label-SAM",
             eframe::NativeOptions {
                 viewport: egui::ViewportBuilder {
                     position: None,
@@ -115,50 +115,67 @@ impl UiData {
     fn draw_button_row(&mut self, ctx: &egui::Context) {
         // the whole button row
         TopBottomPanel::top("Button Area").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                // basic functions
-                if ui.button("Open Folder").clicked() {
-                    self.open_folder();
-                }
-                if ui.button("Save").clicked() {
-                    self.state
-                        .save_mask()
-                        .unwrap_or_else(|e| println!("Error: {}", e));
-                }
-                if ui.button("Next Image").clicked() {
-                    self.next_img();
-                }
-                if ui.button("Segment").clicked() {
-                    self.segment();
-                }
-                if ui.button("Detect").clicked() {
-                    self.detect();
-                }
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    // basic functions
+                    if ui.button("Open Folder").clicked() {
+                        self.open_folder();
+                    }
+                    if ui.button("Save").clicked() {
+                        self.state
+                            .save_mask()
+                            .unwrap_or_else(|e| println!("Error: {}", e));
+                    }
+                    if ui.button("Next Image").clicked() {
+                        self.next_img();
+                    }
+                    if ui.button("Segment").clicked() {
+                        self.segment();
+                    }
+                    if ui.button("Detect").clicked() {
+                        self.detect();
+                    }
 
-                ui.separator();
+                    ui.separator();
+                    if ui.button("Undo").clicked() {
+                        // TODO:
+                        println!("Undo");
+                    }
+                    if ui.button("Redo").clicked() {
+                        // TODO:
+                        println!("Redo");
+                    }
+                });
 
-                // selection for prompt type
-                ui.label("Prompt: ");
-                for variant in PromptType::iter() {
-                    ui.radio_value(&mut self.state.prompt_type, variant, variant.to_string());
-                }
+                ui.horizontal(|ui| {
+                    // selection for prompt type
+                    ui.label("Prompt: ");
+                    for variant in PromptType::iter() {
+                        ui.radio_value(&mut self.state.prompt_type, variant, variant.to_string());
+                    }
 
-                ui.separator();
+                    ui.separator();
 
-                // selection for prompt hover
-                ui.label("Show Prompt: ");
-                for variant in PromptHover::iter() {
-                    ui.radio_value(&mut self.state.prompt_hover, variant, variant.to_string());
-                }
+                    // selection for prompt hover
+                    ui.label("Show Prompt: ");
+                    for variant in PromptHover::iter() {
+                        ui.radio_value(&mut self.state.prompt_hover, variant, variant.to_string());
+                    }
+                });
 
-                ui.separator();
-                ui.checkbox(&mut self.state.selection_mode, "Selection Mode");
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.state.selection_mode, "Selection Mode");
 
-                // operation mode: add new instance or add to existing instance or delete instance
-                ui.separator();
-                for variant in OptMode::iter() {
-                    ui.radio_value(&mut self.state.operation_mode, variant, variant.to_string());
-                }
+                    // operation mode: add new instance or add to existing instance or delete instance
+                    ui.separator();
+                    for variant in OptMode::iter() {
+                        ui.radio_value(
+                            &mut self.state.operation_mode,
+                            variant,
+                            variant.to_string(),
+                        );
+                    }
+                });
             });
         });
     }
@@ -246,30 +263,17 @@ impl UiData {
             // Image Info Section
             ui.label("Image Info");
             ui.vertical(|ui| {
-                match &self.state.img {
-                    Some(_) => (),
-                    None => {
-                        // noting yet
-                        ui.label(format!("No Image loaded"));
-                    }
+                if self.state.img.is_none() {
+                    ui.label("No Image loaded");
                 }
-                match &self.state.img_path {
-                    Some(path) => {
-                        ui.label(format!("Path: {}", path.to_str().unwrap()));
-                    }
-                    None => (),
+                if let Some(path) = &self.state.img_path {
+                    ui.label(format!("Path: {}", path.to_str().unwrap()));
                 }
-                match &self.state.img_ori_size {
-                    Some(size) => {
-                        ui.label(format!("Image Size: {} {}", size[0], size[1]));
-                    }
-                    None => (),
+                if let Some(size) = &self.state.img_ori_size {
+                    ui.label(format!("Image Size: {} {}", size[0], size[1]));
                 }
-                match &self.state.img_file_size {
-                    Some(size) => {
-                        ui.label(format!("File Size: {:.2} KB", size / 1024.0));
-                    }
-                    None => (),
+                if let Some(size) = &self.state.img_file_size {
+                    ui.label(format!("File Size: {:.2} KB", size / 1024.0));
                 }
             });
         });
@@ -357,8 +361,8 @@ impl UiData {
 
                         self.img_boxed([bbox.min.x, bbox.min.y, bbox.max.x, bbox.max.y]);
 
-                        self.state.drag_start = [-100.0, -100.0].into();
-                        self.state.drag_end = [-100.0, -100.0].into();
+                        self.state.drag_start = [-100.0, -100.0];
+                        self.state.drag_end = [-100.0, -100.0];
                     } else if response.dragged() {
                         self.state.drag_end = mouse_pos.into();
                     }

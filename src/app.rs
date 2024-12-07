@@ -5,11 +5,11 @@ mod ui;
 use std::sync::mpsc;
 use threads::{Command, Return};
 
-pub struct APP {}
+pub struct App;
 
-impl APP {
+impl App {
     pub fn new() -> Self {
-        APP {}
+        App {}
     }
 
     pub fn run(&self) {

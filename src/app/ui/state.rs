@@ -321,13 +321,8 @@ impl UiState {
     pub fn format_txt(&self) -> Vec<String> {
         let opt_string: Vec<Option<String>> =
             self.instances.iter().map(|ins| ins.format_txt()).collect();
-        let opt_string: Vec<Option<String>> = opt_string
-            .into_iter()
-            .filter(|o_s| match o_s {
-                None => false,
-                Some(_) => true,
-            })
-            .collect();
+        let opt_string: Vec<Option<String>> =
+            opt_string.into_iter().filter(|o_s| o_s.is_some()).collect();
 
         opt_string.into_iter().map(|o_s| o_s.unwrap()).collect()
     }

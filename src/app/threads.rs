@@ -52,7 +52,7 @@ pub fn run(mut data: ComputationData) -> Result<(), Box<dyn std::error::Error>> 
         while let Ok(task) = data.receiver.recv() {
             let msg = task.to_string();
             data.run_task(task)
-                .expect(format!("Failed to run task: {msg}").as_str());
+                .unwrap_or_else(|_| panic!("Failed to run task: {msg}"));
         }
     });
     Ok(())
@@ -103,7 +103,8 @@ impl ComputationData {
 
     fn detect(&mut self) -> Return {
         let img_ref = self.img.as_ref();
-        let r = match img_ref {
+
+        match img_ref {
             Some(img_ref) => {
                 // the points for boxes have already been normalized
                 let boxes = self.model.detect(&img_ref.data);
@@ -115,9 +116,7 @@ impl ComputationData {
                 Return::BBox(prompts)
             }
             None => Return::Void,
-        };
-
-        r
+        }
     }
 }
 

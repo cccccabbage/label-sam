@@ -1,8 +1,8 @@
-use app::APP;
+use app::App;
 
 mod app;
 mod utils;
 
 fn main() {
-    APP::new().run();
+    App::new().run();
 }

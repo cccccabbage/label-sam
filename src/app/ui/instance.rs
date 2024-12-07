@@ -83,15 +83,12 @@ impl Instance {
     fn update_pos(&mut self) {
         let mut pos = [0.0f32, 0.0];
         let mut count = 0;
-        match &self.mask {
-            Some(mask) => {
-                for point in &mask.0 {
-                    pos[0] += point[0];
-                    pos[1] += point[1];
-                    count += 1;
-                }
+        if let Some(mask) = &self.mask {
+            for point in &mask.0 {
+                pos[0] += point[0];
+                pos[1] += point[1];
+                count += 1;
             }
-            None => (),
         }
 
         for prompt in &self.prompts {
@@ -124,7 +121,7 @@ impl Instance {
                 let dy = p[1] - pos[1];
                 (dx * dx + dy * dy).sqrt()
             }
-            None => std::f32::INFINITY,
+            None => f32::INFINITY,
         }
     }
 
