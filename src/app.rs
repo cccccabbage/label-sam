@@ -19,9 +19,14 @@ impl App {
         threads::run(threads::ComputationData::new(result_sender, task_reciver))
             .expect("Create thread failed");
 
-        ui::UiData::new(task_sender, result_reciver)
+        // TODO: a copy here
+        ui::UiData::new(task_sender.clone(), result_reciver)
             .run()
             .expect("Run Ui Error");
+
+        task_sender
+            .send(threads::Command::End)
+            .expect("End Backend Thread Error");
     }
 }
 

@@ -15,6 +15,7 @@ pub enum Command {
     ReadImage(PathBuf),
     Segment(Vec<Vec<Prompt>>),
     Detect,
+    End,
 }
 
 pub enum Return {
@@ -50,9 +51,14 @@ pub fn run(mut data: ComputationData) -> Result<(), Box<dyn std::error::Error>> 
     // TODO: Kill task
     thread::spawn(move || {
         while let Ok(task) = data.receiver.recv() {
-            let msg = task.to_string();
-            data.run_task(task)
-                .unwrap_or_else(|_| panic!("Failed to run task: {msg}"));
+            match task {
+                Command::End => break,
+                _ => {
+                    let msg = task.to_string();
+                    data.run_task(task)
+                        .unwrap_or_else(|_| panic!("Failed to run task: {msg}"));
+                }
+            }
         }
     });
     Ok(())
@@ -67,6 +73,7 @@ impl ComputationData {
             Command::ReadImage(path) => self.read_image(path),
             Command::Segment(s) => self.segment(s),
             Command::Detect => self.detect(),
+            Command::End => Return::Void,
         };
         Self::time(timer, &msg);
         self.sender.send(ret).expect("Failed to send Return");
@@ -133,6 +140,7 @@ impl fmt::Display for Command {
             Command::ReadImage(_) => write!(f, "Read Image"),
             Command::Detect => write!(f, "Detect"),
             Command::Segment(_) => write!(f, "Segment"),
+            Command::End => write!(f, "End"),
         }
     }
 }
