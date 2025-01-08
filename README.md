@@ -12,21 +12,13 @@ First you need to prepare an onnx model of yolo, you can check [this](https://do
 
 Then you need to export SAM to onnx, which is based on the [samexporter](https://github.com/vietanhdev/samexporter) in this project.
 
-I haven't add the functionality to import custom model so you may need to edit the paths to import your own model.
+I haven't add the functionality to import custom model so you may need to edit the paths in config.json to import your own model.
 
-``` rust
-// src/app/model/sam.rs
-impl SAMmodel {
-    pub fn new() -> Self {
-        Self::new_path("weights/sam_b-encoder.onnx", "weights/sam_b-decoder.onnx")
-    }
-}
-
-// src/app/model/yolo.rs
-impl YOLOmodel {
-    pub fn new() -> Self {
-        Self::new_path("weights/yolov8s-trained.onnx")
-    }
+``` json
+{
+  "yolo_path": "weights/yolov8s-trained.onnx",
+  "sam_e_path": "weights/sam_b-encoder.onnx",
+  "sam_d_path": "weights/sam_b-decoder.onnx"
 }
 ```
 
