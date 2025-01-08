@@ -1,0 +1,5 @@
+{
+  "yolo_path": "weights/yolov8s-trained.onnx",
+  "sam_e_path": "weights/sam_b-encoder.onnx",
+  "sam_d_path": "weights/sam_b-decoder.onnx"
+}

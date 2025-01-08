@@ -36,12 +36,18 @@ pub struct ComputationData {
 
 // public
 impl ComputationData {
-    pub fn new(sender: Sender<Return>, receiver: Receiver<Command>) -> Self {
+    pub fn new(
+        sender: Sender<Return>,
+        receiver: Receiver<Command>,
+        yolo_path: &str,
+        sam_e_path: &str,
+        sam_d_path: &str,
+    ) -> Self {
         ComputationData {
             sender,
             receiver,
 
-            model: super::model::Models::new(),
+            model: super::model::Models::new(yolo_path, sam_e_path, sam_d_path),
             img: None,
         }
     }

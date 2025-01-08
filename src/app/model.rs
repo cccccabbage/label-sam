@@ -11,10 +11,10 @@ pub struct Models {
 }
 
 impl Models {
-    pub fn new() -> Self {
+    pub fn new(yolo_path: &str, sam_e_path: &str, sam_d_path: &str) -> Self {
         Self {
-            sam: sam::SAMmodel::new(),
-            yolo: yolo::YOLOmodel::new(),
+            sam: sam::SAMmodel::new_path(sam_e_path, sam_d_path),
+            yolo: yolo::YOLOmodel::new_path(yolo_path),
 
             embeded: false,
         }

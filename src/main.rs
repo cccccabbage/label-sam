@@ -1,8 +1,10 @@
 use app::App;
 
 mod app;
+mod config;
 mod utils;
 
 fn main() {
-    App::new().run();
+    let config = config::Config::new();
+    App::new(config).run();
 }

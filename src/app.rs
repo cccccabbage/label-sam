@@ -2,22 +2,31 @@ mod model;
 mod threads;
 mod ui;
 
+use crate::config::Config;
 use std::sync::mpsc;
 use threads::{Command, Return};
 
-pub struct App;
+pub struct App {
+    config: Config,
+}
 
 impl App {
-    pub fn new() -> Self {
-        App {}
+    pub fn new(config: Config) -> Self {
+        App { config }
     }
 
     pub fn run(&self) {
         let (task_sender, task_reciver) = mpsc::channel::<Command>();
         let (result_sender, result_reciver) = mpsc::channel::<Return>();
 
-        threads::run(threads::ComputationData::new(result_sender, task_reciver))
-            .expect("Create thread failed");
+        threads::run(threads::ComputationData::new(
+            result_sender,
+            task_reciver,
+            &self.config.yolo_path,
+            &self.config.sam_e_path,
+            &self.config.sam_d_path,
+        ))
+        .expect("Create thread failed");
 
         // TODO: a copy here
         ui::UiData::new(task_sender.clone(), result_reciver)
